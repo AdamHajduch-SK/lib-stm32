@@ -51,6 +51,12 @@ public:
         kernel::Task::Run(this, &Device::Task);
     }
 
+    //! Soft-disconnect (D+ pull-up removed) - the host sees exactly what it would see if the
+    //! cable were physically unplugged; VBUS/charging is unaffected.
+    void Disconnect() { usb->DeviceDisconnect(); }
+    //! Re-enables the soft-connect pull-up after Disconnect().
+    void Connect() { usb->DeviceConnect(); }
+
     void ControlSuccess(Span span = Span());
 
     DeviceInEndpoint& In(unsigned n) { ASSERT(n > 0 && n < USB_IN_ENDPOINTS); return in[n - 1]; }
