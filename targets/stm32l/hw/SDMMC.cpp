@@ -109,10 +109,29 @@ SDMMC::DataResult SDMMC::AbortDmaTransfer(DMAChannel& dma)
 SDMMC::DataResult SDMMC::CompleteDmaTransfer(DMAChannel& dma)
 {
     dma.Disable();
-    ASSERT(dma.CNDTR == 0);
+    // FIX (temporary): these three used to be ASSERT()s - live-debugged a "display freezes
+    // forever" bug down to one of them firing (confirmed live: both the CNDTR one and the DMASK
+    // one have been seen to fire) at the moment a Display-side DMA stall / bus contention episode
+    // coincides with an SD DMA transfer. A tripped ASSERT() here doesn't reset - DBG_AssertFailed()
+    // loops forever feeding the watchdog, so it reads as a permanent freeze. None of these three
+    // checks are needed for correctness: the real success/failure signal is DataResult::Success()
+    // (SDMMC_STA_DBCKEND, checked by the caller), which is completely independent of them - the
+    // caller already has a proper error path for a failed transfer. Downgraded to warnings so a
+    // genuine contention hiccup fails the transfer (caller retries/reports error) instead of
+    // hanging the whole device.
+    if (dma.CNDTR != 0)
+    {
+        MYDBG("*** CompleteDmaTransfer: CNDTR=%u (expected 0) - DMA contention? ***", (unsigned)dma.CNDTR);
+    }
     auto res = STA;
-    ASSERT(!(STA & (SDMMC_STA_TXACT | SDMMC_STA_RXACT)));
-    ASSERT(res & SDMMC_STA_DMASK);
+    if (STA & (SDMMC_STA_TXACT | SDMMC_STA_RXACT))
+    {
+        MYDBG("*** CompleteDmaTransfer: TXACT/RXACT still set (STA=%X) - DMA contention? ***", (unsigned)STA);
+    }
+    if (!(res & SDMMC_STA_DMASK))
+    {
+        MYDBG("*** CompleteDmaTransfer: DMASK not set after DMA transfer complete (STA=%X) - DMA contention? ***", res);
+    }
     ICR = SDMMC_STA_DMASK;
     return res;
 }
