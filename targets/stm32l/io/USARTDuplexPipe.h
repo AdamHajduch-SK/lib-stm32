@@ -31,6 +31,12 @@ public:
         transmitter.Start();
     }
 
+    //! Forwards to the transmitter's Reset() - see USARTTransmitter::Reset. Needed after force-
+    //! disabling the USART peripheral as part of a bus-recovery reset, so a DMA-backed
+    //! transmitter doesn't inherit a stale chained buffer (see DMATransmitter::Reset for the
+    //! full root-cause writeup).
+    void Reset() { transmitter.Reset(); }
+
 private:
     USARTReceiver receiver;
     USARTTransmitter transmitter;

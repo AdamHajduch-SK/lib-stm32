@@ -35,6 +35,11 @@ public:
         transmitter->StartTransmitFromPipe(pipe);
     }
 
+    //! Forwards to the underlying strategy's Reset() - see Transmitter::Reset / DMATransmitter::Reset.
+    //! Call after force-disabling the USART peripheral (e.g. a bus-recovery reset), before
+    //! re-enabling it, so a DMA-backed transmitter doesn't inherit a stale chained buffer.
+    void Reset() { transmitter->Reset(); }
+
 private:
     Pipe pipe;
     USART* usart;
