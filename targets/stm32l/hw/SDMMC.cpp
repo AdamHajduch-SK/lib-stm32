@@ -67,7 +67,7 @@ SDMMC::CommandResult SDMMC::Command(uint32_t cmd, uint32_t arg)
     return state;
 }
 
-void SDMMC::ConfigureDmaRead(DMAChannel& dma, Buffer buf)
+void SDMMC::ConfigureDmaRead(DMAChannel& dma, Buffer buf, size_t blockSize)
 {
     ASSERT(!dma.IsEnabled());
     ASSERT(!(buf.Length() & 3));
@@ -78,10 +78,10 @@ void SDMMC::ConfigureDmaRead(DMAChannel& dma, Buffer buf)
 
     DTIMER = 48000000;
     DLEN = buf.Length();
-    Configure(DataTransferStart() | DataTransferDirection(true) | DataTransferDma() | DataTransferBlockSize(buf.Length()));
+    Configure(DataTransferStart() | DataTransferDirection(true) | DataTransferDma() | DataTransferBlockSize(blockSize ? blockSize : buf.Length()));
 }
 
-void SDMMC::ConfigureDmaWrite(DMAChannel& dma, Span buf)
+void SDMMC::ConfigureDmaWrite(DMAChannel& dma, Span buf, size_t blockSize)
 {
     ASSERT(!dma.IsEnabled());
     ASSERT(!(buf.Length() & 3));
@@ -92,7 +92,7 @@ void SDMMC::ConfigureDmaWrite(DMAChannel& dma, Span buf)
 
     DTIMER = 48000000;
     DLEN = buf.Length();
-    Configure(DataTransferStart() | DataTransferDirection(false) | DataTransferDma() | DataTransferBlockSize(buf.Length()));
+    Configure(DataTransferStart() | DataTransferDirection(false) | DataTransferDma() | DataTransferBlockSize(blockSize ? blockSize : buf.Length()));
 }
 
 SDMMC::DataResult SDMMC::AbortDmaTransfer(DMAChannel& dma)

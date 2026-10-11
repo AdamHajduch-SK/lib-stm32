@@ -44,6 +44,10 @@ class DeviceOutEndpoint
     class Device* owner;
     USBOutEndpoint* ep;
     Buffer packetBuffer;
+    //! bytes received so far into packetBuffer by a multi-packet ReceiveTransfer
+    size_t rxDone;
+    //! the current receive spans several packets (ReceiveTransfer), not just one (ReceivePacket)
+    bool multi;
     bool transferComplete;
     bool endpointDisabled;
 
@@ -60,6 +64,10 @@ public:
     bool IsActive() const { return ep->IsActive(); }
     // low-level packet interface
     async(ReceivePacket, Buffer buffer, Timeout timeout = Timeout::Infinite);
+    //! Receives up to buffer.Length() bytes as one hardware transfer (many packets, no software
+    //! round trip between them) - ends early on a short packet. The length should be exactly what
+    //! the host is going to send, or a following unrelated packet ends up in the buffer too.
+    async(ReceiveTransfer, Buffer buffer, Timeout timeout = Timeout::Infinite);
 };
 
 }

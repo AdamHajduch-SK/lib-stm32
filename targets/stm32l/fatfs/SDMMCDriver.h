@@ -28,6 +28,10 @@ public:
 
     const SDMMC::CardInfo& CardInfo() const { return ci; }
 
+    //! Makes the next Init() start from scratch (controller reset + card identification) - for
+    //! when the card's state is unknown, e.g. after its power was cut or another host used it
+    void ForceReinit() { Status(STA_NODISK | STA_NOINIT); }
+
 protected:
     virtual async(Read, void* buf, LBA_t sectorStart, size_t sectorCount) final override;
     virtual async(Write, const void* buf, LBA_t sectorStart, size_t sectorCount) final override;
@@ -38,6 +42,11 @@ private:
     DMAChannel& dma;
     SDMMC::CardInfo ci;
     unsigned addrMul;
+
+    //! Polls the card's own status (CMD13/SEND_STATUS) until its READY_FOR_DATA bit is set, or
+    //! @p timeout elapses - see the long comment on its own definition in SDMMCDriver.cpp for why
+    //! this exists alongside SDMMC::WaitNotBusy.
+    async(WaitCardReady, Timeout timeout);
 };
 
 }

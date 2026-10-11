@@ -102,6 +102,7 @@ void DeviceOutEndpoint::Reset()
 {
     // break any ongoing transfer
     transferComplete = endpointDisabled = true;
+    multi = false;
     // put the endpoint in its initial state (also disables it on the bus)
     ep->DOEPCTL = USB_OTG_DOEPCTL_EPDIS | USB_OTG_DOEPCTL_SNAK | USB_OTG_DOEPCTL_SD0PID_SEVNFRM;
     ep->InterruptClear();
@@ -129,8 +130,23 @@ async_end
 async(DeviceOutEndpoint::ReceivePacket, Buffer buffer, Timeout timeout)
 async_def()
 {
-    ASSERT(!ep->IsEnabled());
+    if (ep->IsEnabled())
+    {
+        // A previous caller's receive already returned (transferComplete fired) without the
+        // endpoint's own EPENA bit actually clearing first - confirmed live via SWO on a real USB
+        // host: a bus reset arriving while MSC::Task was mid-ReceivePacket let that await resolve
+        // with a stray packet, but the endpoint hardware was left enabled; the very next
+        // ReceivePacket call (a fresh MSC task, re-armed immediately per MSC::OnConfigured's own
+        // "no need to wait" reasoning) then hit this exact state and hard-asserted, taking the
+        // whole USB stack down for the rest of the session (confirmed stuck: "CONTROL request too
+        // long" repeating forever afterward). Resetting first - the same recovery the timeout path
+        // below already performs - makes this call robust against that stale state instead of
+        // asserting on it.
+        ep->Reset();
+        await_signal(endpointDisabled);
+    }
     packetBuffer = buffer;
+    multi = false;
     transferComplete = endpointDisabled = false;
     ep->ReceivePacket(ep->PacketSize());
     if (!await_signal_timeout(transferComplete, timeout))
@@ -145,8 +161,63 @@ async_def()
 }
 async_end
 
+async(DeviceOutEndpoint::ReceiveTransfer, Buffer buffer, Timeout timeout)
+async_def()
+{
+    if (ep->IsEnabled())
+    {
+        // see ReceivePacket
+        ep->Reset();
+        await_signal(endpointDisabled);
+    }
+
+    // whole packets only (the hardware counts them), within the 10-bit packet counter
+    size_t mps = ep->PacketSize();
+    size_t len = std::min<size_t>(buffer.Length(), 1023 * mps) / mps * mps;
+    if (!len)
+    {
+        async_return(await(ReceivePacket, buffer, timeout));
+    }
+
+    packetBuffer = buffer.Left(len);
+    rxDone = 0;
+    multi = true;
+    transferComplete = endpointDisabled = false;
+    // one transfer of len/mps packets - the core ACKs them back to back and only raises XFRC
+    // once all have arrived (or a short packet ends it early)
+    ep->ReceivePacket(len);
+    if (!await_signal_timeout(transferComplete, timeout))
+    {
+        ep->Reset();
+        await_signal(endpointDisabled);
+        multi = false;
+        async_return(0);
+    }
+
+    multi = false;
+    async_return(rxDone);
+}
+async_end
+
 void DeviceOutEndpoint::PacketReceived(volatile uint32_t& fifo, size_t size)
 {
+    if (multi)
+    {
+        // append; completion comes from XFRC (all packets in, or a short one), see HandleInterrupts
+        size_t words = (size + 3) >> 2;
+        size_t room = packetBuffer.Length() - rxDone;
+        auto p = (uint32_t*)(packetBuffer.Pointer<uint8_t>() + rxDone);
+        size_t keep = std::min(words, room >> 2);
+        for (size_t i = 0; i < words; i++)
+        {
+            uint32_t w = fifo;
+            if (i < keep) { p[i] = w; }
+        }
+        rxDone += std::min(size, room);
+        USBDIAG("RX+: EP%d %db (%d)", ep->Index(), size, rxDone);
+        return;
+    }
+
     ASSERT(!transferComplete);
     if (size > packetBuffer.Length())
     {

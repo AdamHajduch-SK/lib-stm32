@@ -45,9 +45,21 @@ public:
         configDescriptors = configArray;
     }
 
-    void Start(DeviceCallbacks& callbacks)
+    //! @p connect false starts the device fully soft-disconnected (no D+ pull-up) instead of the
+    //! default connect-on-boot - for a device class that wants to control exactly when the host
+    //! first sees it, like MSC's own "stay off the bus until the pilot opens USB Storage" policy.
+    //! Trying to achieve that by calling Disconnect() right after Start() instead does NOT work:
+    //! Task() runs as its own background coroutine (Start() only schedules it, same as every
+    //! kernel::Task::Run - see MSC.cpp's own long-form comment on that exact point elsewhere),
+    //! and does not reach its own unconditional DeviceConnect() until several awaited steps
+    //! later (core enable, core reset, a bounded mode-switch wait) - by which point any Disconnect()
+    //! already issued from the caller's own constructor has long since been overwritten. Confirmed
+    //! live: MSC's "default inhibited" never actually took effect, the device kept enumerating on
+    //! its own in the background even with the USB Storage screen never opened.
+    void Start(DeviceCallbacks& callbacks, bool connect = true)
     {
         this->callbacks = &callbacks;
+        startConnected = connect;
         kernel::Task::Run(this, &Device::Task);
     }
 
@@ -116,6 +128,8 @@ private:
     };
 
     _USB* usb = USB;
+    //! See Start()'s own comment - whether Task() connects at the end of its init sequence.
+    bool startConnected = true;
     const ConfigDescriptorHeader* config = NULL;
     State state = State::None;
     Tasks tasks = Tasks::None;

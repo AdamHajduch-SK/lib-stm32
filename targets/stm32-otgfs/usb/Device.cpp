@@ -113,9 +113,13 @@ async_def()
 
     usb->GINTMSK |= (USB_OTG_GINTMSK_SRQIM | USB_OTG_GINTMSK_OTGINT);
 
+    // DeviceDisconnect() first unconditionally, forcing a clean soft-disconnected starting point
+    // regardless of whatever state the pull-up happened to be in - only then does startConnected
+    // (see Start()'s own comment) decide whether to immediately connect or leave it off until the
+    // caller explicitly calls Connect() later.
     usb->DeviceDisconnect();
-    usb->DeviceConnect();
-    USBDEBUG("Device ready for connection");
+    if (startConnected) { usb->DeviceConnect(); }
+    USBDEBUG(startConnected ? "Device ready for connection" : "Device started, staying disconnected");
 
 //    EnableInitInterrupts();
     irq.Enable();

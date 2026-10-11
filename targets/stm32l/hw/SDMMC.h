@@ -145,6 +145,15 @@ struct SDMMC : SDMMC_TypeDef
     CommandResult Command_SendStatus(uint16_t rca) { return Command(CmdSendStatus, rca << 16); }
     CommandResult Command_ReadSingleBlock(uint32_t address) { return Command(CmdReadSingleBlock, address); }
     CommandResult Command_WriteBlock(uint32_t address) { return Command(CmdWriteBlock, address); }
+    //! Opcodes existed in the enum below from the start, just never had a wrapper - SDMMCDriver's
+    //! Read()/Write() looped single-block commands one sector at a time regardless of how many
+    //! sectors were actually requested, paying a full command-response round trip (plus its own
+    //! DMA setup/teardown) per 512 bytes. See SDMMCDriver.cpp for where these are actually used.
+    CommandResult Command_ReadMultipleBlock(uint32_t address) { return Command(CmdReadMultipleBlock, address); }
+    CommandResult Command_WriteMultipleBlock(uint32_t address) { return Command(CmdWriteMultipleBlock, address); }
+    //! Terminates a CMD18/CMD25 multi-block transfer - required by the SD spec after one (never
+    //! needed, and never sent, after a single-block CMD17/CMD24, which completes on its own).
+    CommandResult Command_StopTransmission() { return Command(CmdStopTransmission, 0); }
 
     CommandResult AppCommand_Test() { return Command(CmdApp, 0); }
     CommandResult AppCommand_SendOpCond(uint32_t arg) { return Command(ACmdSendOpCond, arg); }
@@ -354,8 +363,14 @@ struct SDMMC : SDMMC_TypeDef
 
     #pragma region Configuration helpers
 
-    void ConfigureDmaRead(DMAChannel& dma, Buffer buf);
-    void ConfigureDmaWrite(DMAChannel& dma, Span buf);
+    //! @p blockSize must be the SD block size (512) regardless of how large @p buf is - DLEN
+    //! (derived from buf.Length()) is the *total* transfer length, DTBLOCKSIZE is the fixed unit
+    //! the card raises DBCKEND on; a single-block transfer has them equal, but a multi-block one
+    //! (see Command_ReadMultipleBlock/WriteMultipleBlock) does not - defaulted to buf.Length()
+    //! only so the (now historical) single-sector-only callers before multi-block existed keep
+    //! compiling unchanged.
+    void ConfigureDmaRead(DMAChannel& dma, Buffer buf, size_t blockSize = 0);
+    void ConfigureDmaWrite(DMAChannel& dma, Span buf, size_t blockSize = 0);
     DataResult AbortDmaTransfer(DMAChannel& dma);
     DataResult CompleteDmaTransfer(DMAChannel& dma);
 
