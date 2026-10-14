@@ -315,9 +315,37 @@ async_def(
 }
 async_end
 
+//! What FatFs asks the disk itself. Mounting and file access need none of it; f_mkfs (formatting
+//! the card in the vario) needs the size and the erase block - left empty, it formatted with
+//! whatever happened to be in its variables.
 async(SDMMCDriver::IoCtl, uint8_t cmd, void* buff)
 async_def_sync()
 {
+    switch (cmd)
+    {
+        case GET_SECTOR_COUNT:
+        {
+            // CSD v1 (SDSC) counts its own read blocks of 512..2048 B, FatFs 512 B sectors
+            auto& csd = ci.csd;
+            *(LBA_t*)buff = csd.IsV2() ? LBA_t(csd.v2.BlockCount()) : LBA_t(csd.v1.BlockCount()) << (csd.v1.rdLen - 9);
+            break;
+        }
+
+        case GET_SECTOR_SIZE:
+            *(WORD*)buff = 512;
+            break;
+
+        case GET_BLOCK_SIZE:
+            // in sectors: 4 MB, the allocation unit of SDHC/SDXC cards - the filesystem areas
+            // aligned to it are erased and written by the card as whole units
+            *(DWORD*)buff = 8192;
+            break;
+
+        default:
+            // CTRL_SYNC: every write is complete when Write returns, nothing is cached here
+            break;
+    }
+    async_return(RES_OK);
 }
 async_end
 
